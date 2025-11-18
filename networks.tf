@@ -1,21 +1,5 @@
 #########################################################
-# TERRAFORM + PROVIDER
-#########################################################
-terraform {
-  required_version = ">= 1.7.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0"
-    }
-  }
-}
-
-provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile
-}
-
+#This will create a VPC, Subnets, IGW, Routing tables and Security Groups.
 #########################################################
 # VARIABLES
 #########################################################
@@ -35,7 +19,7 @@ variable "aws_profile" {
 # VPC and Networking Variables
 variable "vpc_name" {
   type        = string
-  description = "VPC Name that use network with public subnet"
+  description = "VPC Name"
   default     = "main-vpc-ssm"
 }
 variable "vpc_cidr" {
@@ -44,38 +28,9 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-# EC2 Instance Variables
-variable "linux_instance_type" {
-  type        = string
-  description = "EC2 Instance Type"
-  default     = "t3.nano"
-}
-variable "linux_instance_ami" {
-  type        = string
-  description = "EC2 Instance Amazon Linux 2023 AMI"
-  #default     = "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
-  # Corresponds to Amazon Linux 2023 in eu-west-2 al2023-ami-2023.9.20251027.0-kernel-6.1-x86_64
-  default = "ami-024294779773cf91a"
-}
-variable "linux_instance_name" {
-  type        = string
-  description = "Name of the EC2 instance"
-  default     = "linux_vm_ssm"
-}
-variable "ebs_volume_size_gb" {
-  description = "Size of the EBS volume in GB"
-  type        = number
-  default     = 4
-}
-
 #########################################################
 # NETWORK RESOURCES
 #########################################################
-# Local Variables
-#locals {
-#  ec2_instance_sg_name = "${var.vpc_name}-ec2-inst-sg"
-#}
-
 # Setup main vpc
 resource "aws_vpc" "this_vpc" {
   cidr_block           = var.vpc_cidr
@@ -179,6 +134,7 @@ resource "aws_security_group" "this_sg" {
   }
   tags = { Name = "${var.vpc_name}-ec2-inst-sg" }
 }
+
 ###############################################################################
 # IAM ROLE + INSTANCE PROFILE for SSM
 ###############################################################################
@@ -251,75 +207,72 @@ resource "aws_security_group" "vpc_endpoints_sg" {
   }
 }
 
+#########################################################
+# OUTPUTS - VPC and SUBNETS
+#########################################################
+output "vpc_name" {
+  description = "Details of the main VPC"
+  value       = aws_vpc.this_vpc.tags.Name
+}
+
+output "public_subnet_name" {
+  description = "Details of the main public subnet"
+  value       = aws_subnet.this_public_subnet.tags.Name
+}
+
+output "private_subnet_name" {
+  description = "Details of the main private subnet"
+  value       = aws_subnet.this_private_subnet.tags.Name
+}
 
 #########################################################
-# EC2 INSTANCE
+# OUTPUTS - Instance IAM Role Name
 #########################################################
-# Setup Key Pair
-resource "aws_key_pair" "this_keypair" {
-  key_name   = "my-ec2-linux-instance-keypair"
-  public_key = file("../../ec2_all_keys/aws-ec2-linux-instance-public-key.pub")
+output "instance_iam_role" {
+  description = "IAM role attached to the EC2 instance"
+  value       = aws_iam_role.ec2_ssm_role.name
 }
 
-# Setup EC" instance
-resource "aws_instance" "local_vm_server" {
-  ami                         = var.linux_instance_ami
-  instance_type               = var.linux_instance_type
-  subnet_id                   = aws_subnet.this_private_subnet.id
-  vpc_security_group_ids      = [aws_security_group.this_sg.id]
-  key_name                    = aws_key_pair.this_keypair.key_name
-  iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
-  associate_public_ip_address = false
-  user_data                   = <<-EOF
-#!/bin/bash
-exec > /var/log/user-data.log 2>&1
-set -x
-sleep 30
-retry=3
-while [[ $retry > 0 ]]; do
-  # Detect the root NVMe device dynamically
-  ROOT_NAME=$(lsblk -no PKNAME $(findmnt / -o SOURCE -n))
-  # Detect secondary EBS NVMe volume
-  DEVICE=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep nvme | grep -v "$ROOT_NAME" | head -n 1)
-  if [[ -n $DEVICE ]]; then 
-    DEVICE="/dev/$DEVICE"
-    # Create filesystem only if none exists
-    if ! blkid $DEVICE; then
-      mkfs -t xfs $DEVICE
-    fi
-    mkdir -p /mnt/data
-    mount $DEVICE /mnt/data
-    uuid=$(blkid -s UUID -o value $DEVICE)
-    grep $uuid /etc/fstab > /dev/null
-    if [[ $? -ne 0 ]]; then
-      echo "UUID=$uuid /mnt/data xfs defaults,nofail 0 2" >> /etc/fstab
-      chown ec2-user:ec2-user /mnt/data
-      chmod 775 /mnt/data
-      ## To Survive Reboot.
-      echo "chown ec2-user:ec2-user /mnt/data" >> /etc/rc.local
-      echo "chmod 775 /mnt/data" >> /etc/rc.local
-      chmod +x /etc/rc.local
-    fi
-    break
-  else
-    sleep 30
-    retry=$((retry-1))
-  fi
-done
-EOF
-  tags                        = { Name = var.linux_instance_name }
+#########################################################
+# OUTPUTS - SECURITY GROUPS
+#########################################################
+output "ec2_instance_security_group_name" {
+  description = "Security Group used by the EC2 instance"
+  value       = aws_security_group.this_sg.name
+}
+output "vpc_endpoints_security_group_name" {
+  description = "Security Group used by the VPC Endpoints"
+  value       = aws_security_group.vpc_endpoints_sg.name
 }
 
-resource "aws_ebs_volume" "data_volume" {
-  availability_zone = aws_instance.local_vm_server.availability_zone
-  size              = var.ebs_volume_size_gb
-  type              = "gp3"
-  tags              = { Name = "${var.linux_instance_name}-data" }
+#########################################################
+# OUTPUTS - NAT GATEWAY + INTERNET
+#########################################################
+output "nat_gateway_id" {
+  description = "Details of the NAT Gateway"
+  value       = aws_nat_gateway.this_nat_gw.tags.Name
 }
 
-resource "aws_volume_attachment" "attach_data" {
-  device_name  = "/dev/sdf"
-  volume_id    = aws_ebs_volume.data_volume.id
-  instance_id  = aws_instance.local_vm_server.id
-  force_detach = true
+output "nat_gateway_public_ip" {
+  description = "Public IP address of the NAT Gateway"
+  value       = aws_eip.this_nat_eip.public_ip
+}
+
+#########################################################
+# OUTPUTS - VPC SSM ENDPOINTS
+#########################################################
+output "ssm_vpc_endpoints" {
+  description = "Map of SSM VPC endpoint IDs"
+  value = {
+    for key, ep in aws_vpc_endpoint.vpc_ssm_endpoints :
+    key => ep.id
+  }
+}
+
+output "ssm_vpc_endpoint_dns" {
+  description = "DNS names for SSM VPC endpoints"
+  value = {
+    for key, ep in aws_vpc_endpoint.vpc_ssm_endpoints :
+    key => ep.dns_entry[*].dns_name
+  }
 }
