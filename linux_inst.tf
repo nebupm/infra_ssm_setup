@@ -50,7 +50,7 @@ resource "aws_instance" "linux_instance" {
   ami                         = var.linux_instance_ami
   instance_type               = var.linux_instance_type
   subnet_id                   = aws_subnet.this_private_subnet.id
-  vpc_security_group_ids      = [aws_security_group.this_sg.id]
+  vpc_security_group_ids      = [aws_security_group.ec2_instance_sg.id]
   key_name                    = aws_key_pair.this_keypair.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
   associate_public_ip_address = false

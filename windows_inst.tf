@@ -69,7 +69,7 @@ resource "aws_instance" "windows_instance" {
   ami                         = var.windows_2025_instance_ami
   instance_type               = var.windows_instance_type
   subnet_id                   = aws_subnet.this_private_subnet.id
-  vpc_security_group_ids      = [aws_security_group.this_sg.id]
+  vpc_security_group_ids      = [aws_security_group.ec2_instance_sg.id]
   key_name                    = aws_key_pair.this_windows_keypair.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
   get_password_data           = true

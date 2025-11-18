@@ -104,9 +104,7 @@ resource "aws_route_table_association" "this_private_route_table_association" {
   route_table_id = aws_route_table.this_private_route_table.id
 }
 
-
-resource "aws_security_group" "this_sg" {
-  #name        = local.ec2_instance_sg_name
+resource "aws_security_group" "ec2_instance_sg" {
   name        = "${var.vpc_name}-ec2-inst-sg"
   description = "Security group for EC2 Instances in ${var.vpc_name}"
   vpc_id      = aws_vpc.this_vpc.id
@@ -139,9 +137,9 @@ resource "aws_security_group" "this_sg" {
 # IAM ROLE + INSTANCE PROFILE for SSM
 ###############################################################################
 resource "aws_iam_role" "ec2_ssm_role" {
-  name        = "AllowSSMRoleToAccessInstances"
-  description = "Custom - Role to allow EC2 instances to use SSM Service features"
-
+  name                 = "AllowSSMRoleToAccessInstances"
+  description          = "Custom - Role to allow EC2 instances to use SSM Service features"
+  max_session_duration = 7200
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -186,7 +184,7 @@ resource "aws_vpc_endpoint" "vpc_ssm_endpoints" {
   tags = { Name = "${var.vpc_name}-${each.key}-endpoint" }
 }
 
-# endpoint security group: allow EC2 SG to talk to endpoints on 443
+# endpoint security group: allow EC2 SG to talk to VPC endpoints on 443
 resource "aws_security_group" "vpc_endpoints_sg" {
   name   = "vpc-endpoints-ssm-sg"
   tags   = { Name = "${var.vpc_name}-endpoint-sg" }
@@ -196,7 +194,7 @@ resource "aws_security_group" "vpc_endpoints_sg" {
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
-    security_groups = [aws_security_group.this_sg.id] # allow EC2 instances in this SG
+    security_groups = [aws_security_group.ec2_instance_sg.id] # allow EC2 instances in this SG
   }
 
   egress {
@@ -238,7 +236,7 @@ output "instance_iam_role" {
 #########################################################
 output "ec2_instance_security_group_name" {
   description = "Security Group used by the EC2 instance"
-  value       = aws_security_group.this_sg.name
+  value       = aws_security_group.ec2_instance_sg.name
 }
 output "vpc_endpoints_security_group_name" {
   description = "Security Group used by the VPC Endpoints"
