@@ -116,7 +116,14 @@ resource "aws_security_group" "ec2_instance_sg" {
     protocol    = "tcp"
     cidr_blocks = ["82.16.60.106/32"]
   }
-
+  # Allow SMB port for FSx communication
+  ingress {
+    from_port   = 445
+    to_port     = 445
+    protocol    = "tcp"
+    cidr_blocks = ["82.16.60.106/32"]
+  }
+  # Allow SSH communication.
   ingress {
     from_port   = 22
     to_port     = 22
@@ -208,6 +215,7 @@ resource "aws_security_group" "vpc_endpoints_sg" {
 #########################################################
 # OUTPUTS - VPC and SUBNETS
 #########################################################
+
 output "vpc_name" {
   description = "Details of the main VPC"
   value       = aws_vpc.this_vpc.tags.Name

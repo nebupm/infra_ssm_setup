@@ -1,10 +1,16 @@
 #########################################################
 # VARIABLES
 #########################################################
-# EC2 Instance Variables
+# EC2 Linux Instance Variables
+variable "create_linux_ec2" {
+  description = "Whether to create the Linux EC2 instance"
+  type        = bool
+  default     = true
+}
+
 variable "linux_instance_type" {
   type        = string
-  description = "EC2 Instance Type"
+  description = "EC2 Linux Instance Type"
   default     = "t3.nano"
 }
 variable "linux_instance_ami" {
@@ -24,36 +30,32 @@ variable "linux_ebs_volume_size_gb" {
   type        = number
   default     = 4
 }
+
+variable "linux_enable_public_ip_address" {
+  type        = bool
+  description = "Whether to enable a public IP address for the Linux EC2 instance"
+  default     = true
+}
 # Setup EC2 instance
 #########################################################
 # EC2 INSTANCE
 #########################################################
 # Setup Key Pair
-resource "aws_key_pair" "this_keypair" {
-  key_name   = "my-ec2-linux-instance-keypair"
+resource "aws_key_pair" "this_linux_keypair" {
+  key_name   = "linux-ec2-instance-keypair"
   public_key = file("../../ec2_all_keys/aws-ec2-linux-instance-public-key.pub")
 }
 
-#########################
-# EBS volume for Linux
-#########################
-resource "aws_ebs_volume" "linux_data_volume" {
-  availability_zone = aws_instance.linux_instance.availability_zone
-  size              = var.linux_ebs_volume_size_gb
-  type              = "gp3"
-  tags              = { Name = "${var.linux_instance_name}-data" }
-}
-
-
-# Setup EC" instance
+# Setup EC2 instance
 resource "aws_instance" "linux_instance" {
+  count                       = var.create_linux_ec2 ? 1 : 0
   ami                         = var.linux_instance_ami
   instance_type               = var.linux_instance_type
   subnet_id                   = aws_subnet.this_private_subnet.id
   vpc_security_group_ids      = [aws_security_group.ec2_instance_sg.id]
-  key_name                    = aws_key_pair.this_keypair.key_name
+  key_name                    = aws_key_pair.this_linux_keypair.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
-  associate_public_ip_address = false
+  associate_public_ip_address = var.linux_enable_public_ip_address
   user_data                   = <<-EOF
 #!/bin/bash
 exec > /var/log/user-data.log 2>&1
@@ -94,14 +96,22 @@ EOF
   tags                        = { Name = var.linux_instance_name }
 }
 
+resource "aws_ebs_volume" "data_volume" {
+  count             = var.create_linux_ec2 ? 1 : 0
+  availability_zone = aws_instance.linux_instance[count.index].availability_zone
+  size              = var.linux_ebs_volume_size_gb
+  type              = "gp3"
+  tags              = { Name = "${var.linux_instance_name}-data" }
+}
 
 #########################
 # Attach EBS volume
 #########################
 resource "aws_volume_attachment" "attach_data" {
+  count        = var.create_linux_ec2 ? 1 : 0
   device_name  = "/dev/sdf"
-  volume_id    = aws_ebs_volume.linux_data_volume.id
-  instance_id  = aws_instance.linux_instance.id
+  volume_id    = aws_ebs_volume.data_volume[count.index].id
+  instance_id  = aws_instance.linux_instance[count.index].id
   force_detach = true
 }
 
@@ -110,17 +120,19 @@ resource "aws_volume_attachment" "attach_data" {
 #########################################################
 # EC2 Instance details
 output "linux_instance_id" {
-  value = aws_instance.linux_instance.id
+  value = var.create_linux_ec2 ? aws_instance.linux_instance[0].id : null
 }
 output "linux_instance_name" {
-  value = aws_instance.linux_instance.tags.Name
+  value = var.create_linux_ec2 ? aws_instance.linux_instance[0].tags.Name : null
+
 }
 output "linux_instance_public_ip" {
-  value = aws_instance.linux_instance.public_ip
+  value = var.create_linux_ec2 ? aws_instance.linux_instance[0].public_ip : null
 }
 output "linux_instance_ami_id" {
-  value = aws_instance.linux_instance.ami
+  value = var.create_linux_ec2 ? aws_instance.linux_instance[0].ami : null
+
 }
 output "linux_instance_type" {
-  value = aws_instance.linux_instance.instance_type
+  value = var.create_linux_ec2 ? aws_instance.linux_instance[0].instance_type : null
 }

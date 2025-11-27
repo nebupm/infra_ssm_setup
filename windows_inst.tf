@@ -2,6 +2,13 @@
 # VARIABLES
 #########################################################
 # EC2 Windows Instance Variables
+variable "create_windows_ec2" {
+  description = "Whether to create the Windows EC2 instance"
+  type        = bool
+  default     = true
+}
+
+
 variable "windows_instance_type" {
   type        = string
   description = "EC2 Windows Instance Type"
@@ -14,11 +21,13 @@ variable "windows_2016_instance_ami" {
   default     = "ami-0b31515a89503365e"
 }
 
+
 variable "windows_2019_instance_ami" {
   type        = string
   description = "EC2 Instance Windows_Server-2019-English-Full-Base"
   default     = "ami-0dfb58a0ca05ad98f"
 }
+
 
 variable "windows_2022_instance_ami" {
   type        = string
@@ -43,6 +52,11 @@ variable "windows_ebs_volume_size_gb" {
   default = 30
 }
 
+variable "windows_enable_public_ip_address" {
+  type        = bool
+  description = "Whether to enable a public IP address for the Windows EC2 instance"
+  default     = true
+}
 #########################################################
 #  WINDOWS EC2 INSTANCE
 #########################################################
@@ -53,19 +67,10 @@ resource "aws_key_pair" "this_windows_keypair" {
 }
 
 #########################
-# EBS volume for Windows
-#########################
-resource "aws_ebs_volume" "windows_data_volume" {
-  availability_zone = aws_instance.windows_instance.availability_zone
-  size              = var.windows_ebs_volume_size_gb
-  type              = "gp3"
-  tags              = { Name = "${var.windows_instance_name}-data" }
-}
-
-#########################
 # Windows EC2 Instance
 #########################
 resource "aws_instance" "windows_instance" {
+  count                       = var.create_windows_ec2 ? 1 : 0
   ami                         = var.windows_2025_instance_ami
   instance_type               = var.windows_instance_type
   subnet_id                   = aws_subnet.this_private_subnet.id
@@ -73,7 +78,7 @@ resource "aws_instance" "windows_instance" {
   key_name                    = aws_key_pair.this_windows_keypair.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
   get_password_data           = true
-  associate_public_ip_address = false
+  associate_public_ip_address = var.windows_enable_public_ip_address
   user_data                   = <<-EOF
 <powershell>
 
@@ -130,12 +135,25 @@ EOF
 }
 
 #########################
+# EBS volume for Windows
+#########################
+resource "aws_ebs_volume" "windows_data" {
+  count             = var.create_windows_ec2 ? 1 : 0
+  availability_zone = aws_instance.windows_instance[count.index].availability_zone
+  size              = var.windows_ebs_volume_size_gb
+  type              = "gp3"
+  tags              = { Name = "windows-data-volume" }
+}
+
+#########################
 # Attach EBS volume
 #########################
-resource "aws_volume_attachment" "attach_windows_data_volume" {
+
+resource "aws_volume_attachment" "attach_windows_data" {
+  count        = var.create_windows_ec2 ? 1 : 0
   device_name  = "/dev/sdf"
-  volume_id    = aws_ebs_volume.windows_data_volume.id
-  instance_id  = aws_instance.windows_instance.id
+  volume_id    = aws_ebs_volume.windows_data[count.index].id
+  instance_id  = aws_instance.windows_instance[count.index].id
   force_detach = true
 }
 
@@ -143,17 +161,14 @@ resource "aws_volume_attachment" "attach_windows_data_volume" {
 # Outputs
 ##################################################
 output "windows_instance_id" {
-  value = aws_instance.windows_instance.id
+  value = var.create_windows_ec2 ? aws_instance.windows_instance[0].id : null
 }
 output "windows_instance_public_ip" {
-  value = aws_instance.windows_instance.public_ip
+  value = var.create_windows_ec2 ? aws_instance.windows_instance[0].public_ip : null
 }
 output "windows_admin_password" {
   description = "Decrypted Windows Administrator password"
-  value = rsadecrypt(
-    aws_instance.windows_instance.password_data,
-    file("../../ec2_all_keys/aws-ec2-windows-instance-private-key.pem")
-  )
-  sensitive = true
+  value       = var.create_windows_ec2 ? rsadecrypt(aws_instance.windows_instance[0].password_data, file("../../ec2_all_keys/aws-ec2-windows-instance-private-key.pem")) : null
+  sensitive   = true
 }
 #Run the command : terraform  output windows_admin_password
