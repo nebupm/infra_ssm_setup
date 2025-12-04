@@ -57,6 +57,7 @@ variable "windows_enable_public_ip_address" {
   description = "Whether to enable a public IP address for the Windows EC2 instance"
   default     = true
 }
+
 #########################################################
 #  WINDOWS EC2 INSTANCE
 #########################################################
@@ -70,15 +71,16 @@ resource "aws_key_pair" "this_windows_keypair" {
 # Windows EC2 Instance
 #########################
 resource "aws_instance" "windows_instance" {
-  count                       = var.create_windows_ec2 ? 1 : 0
-  ami                         = var.windows_2025_instance_ami
-  instance_type               = var.windows_instance_type
-  subnet_id                   = aws_subnet.this_private_subnet.id
+  count         = var.create_windows_ec2 ? 1 : 0
+  ami           = var.windows_2025_instance_ami
+  instance_type = var.windows_instance_type
+  #subnet_id                   = aws_subnet.this_private_subnet.id
   vpc_security_group_ids      = [aws_security_group.ec2_instance_sg.id]
   key_name                    = aws_key_pair.this_windows_keypair.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2-instance-profile-for-ssm.name
   get_password_data           = true
   associate_public_ip_address = var.windows_enable_public_ip_address
+  subnet_id                   = var.windows_enable_public_ip_address ? aws_subnet.this_public_subnet.id : aws_subnet.this_private_subnet.id
   user_data                   = <<-EOF
 <powershell>
 
